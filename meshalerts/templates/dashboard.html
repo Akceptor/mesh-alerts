@@ -148,6 +148,11 @@ textarea.field { font-size:14px; padding:10px 12px; resize:vertical; min-height:
 .conn { padding:16px; display:flex; flex-direction:column; gap:12px; }
 .conn-row { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; }
 .conn-port { flex:1 1 280px; min-width:0; }
+.conn-tr { flex:0 1 150px; min-width:0; }
+.conn-host { flex:1 1 220px; min-width:0; }
+.conn-tcpport { flex:0 1 110px; min-width:0; }
+.conn [hidden] { display:none; }
+input.field { min-width:0; width:100%; }
 select.field { width:100%; min-width:0; text-overflow:ellipsis; }
 .conn-line { font-size:13px; color:var(--fg-2); overflow-wrap:anywhere; }
 .conn-line.ok { color:var(--ok); }
@@ -182,9 +187,24 @@ select.field { width:100%; min-width:0; text-overflow:ellipsis; }
   <h2 id="conn-h">Radio connection</h2>
   <p class="conn-line" id="connLine" role="status" aria-live="polite">Loading&hellip;</p>
   <div class="conn-row">
-    <div class="col conn-port">
+    <div class="col conn-tr">
+      <label for="trSel" class="th">Transport</label>
+      <select id="trSel" class="field">
+        <option value="serial">USB serial</option>
+        <option value="tcp">TCP</option>
+      </select>
+    </div>
+    <div class="col conn-port" id="serialFields">
       <label for="portSel" class="th">Serial port</label>
       <select id="portSel" class="field"></select>
+    </div>
+    <div class="col conn-host" id="tcpHostBox" hidden>
+      <label for="hostIn" class="th">Host</label>
+      <input id="hostIn" class="field mono" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="253" placeholder="192.168.50.10">
+    </div>
+    <div class="col conn-tcpport" id="tcpPortBox" hidden>
+      <label for="tcpPortIn" class="th">Port</label>
+      <input id="tcpPortIn" class="field mono" type="number" inputmode="numeric" min="1" max="65535" placeholder="4403">
     </div>
     <div class="group" style="gap:8px">
       <button class="btn" type="button" id="refreshPorts">Refresh ports</button>
@@ -193,7 +213,7 @@ select.field { width:100%; min-width:0; text-overflow:ellipsis; }
     </div>
   </div>
   <label class="check"><input type="checkbox" id="anyNode"> Accept any node</label>
-  <p class="note">Connect closes the current link and opens the chosen port at once. Auto-detect skips Espressif devices; choose one by hand if you need it. Accept any node skips the expected node ID check for this connection only.</p>
+  <p class="note">Connect closes the current link and opens the chosen port or TCP address at once. A TCP address set here lasts until the service restarts; config.toml is not changed. Auto-detect skips Espressif devices; choose one by hand if you need it. Accept any node skips the expected node ID check for this connection only.</p>
   <p class="err" id="connErr" role="alert"></p>
 </section>
 
@@ -291,7 +311,7 @@ const $ = (id) => document.getElementById(id);
 
 // UI state lives here, not in the DOM that render() rebuilds.
 const ui = {filter: "all", target: null, onlyActive: false, nodes: [], names: {}, busy: false,
-  port: "", portTouched: false, ports: [], portsSig: "", connBusy: false, conn: null};
+  port: "", portTouched: false, tr: "serial", trTouched: false, host: "", tcpPort: "", tcpTouched: false, ports: [], portsSig: "", connBusy: false, conn: null};
 const FILTERS = [["all", "All"], ["sub", "Subscribed"], ["unsub", "Not subscribed"], ["nopos", "No position"]];
 
 function el(tag, cls, text) {
@@ -418,6 +438,26 @@ function renderPortSelect() {
   if (!ui.port) $("anyNode").checked = false;
 }
 
+function renderTransport() {
+  const c = ui.conn;
+  if (!ui.trTouched && c) ui.tr = c.transport === "tcp" ? "tcp" : "serial";
+  if (!ui.tcpTouched && c) {
+    ui.host = c.host || "";
+    ui.tcpPort = c.port ? String(c.port) : "";
+  }
+  const tcp = ui.tr === "tcp";
+  $("trSel").value = ui.tr;
+  $("serialFields").hidden = tcp;
+  $("tcpHostBox").hidden = !tcp;
+  $("tcpPortBox").hidden = !tcp;
+  $("refreshPorts").hidden = tcp;
+  if (!ui.tcpTouched) {
+    $("hostIn").value = ui.host;
+    $("tcpPortIn").value = ui.tcpPort;
+  }
+  $("anyNode").disabled = ui.connBusy || (!tcp && !ui.port);
+}
+
 function renderConnection(c) {
   ui.conn = c;
   const line = $("connLine");
@@ -441,11 +481,12 @@ function renderConnection(c) {
   line.textContent = text;
   line.className = "conn-line " + cls;
   renderPortSelect();
+  renderTransport();
 }
 
 function applyConnBusy() {
-  for (const id of ["refreshPorts", "connectBtn", "disconnectBtn", "portSel"]) $(id).disabled = ui.connBusy;
-  $("anyNode").disabled = ui.connBusy || !ui.port;
+  for (const id of ["refreshPorts", "connectBtn", "disconnectBtn", "portSel", "trSel", "hostIn", "tcpPortIn"]) $(id).disabled = ui.connBusy;
+  $("anyNode").disabled = ui.connBusy || (ui.tr !== "tcp" && !ui.port);
 }
 
 async function loadPorts(report) {
@@ -476,10 +517,30 @@ async function connAction(fn) {
 }
 
 function onConnect() {
+  if (ui.tr === "tcp") {
+    const host = $("hostIn").value.trim();
+    const raw = $("tcpPortIn").value.trim();
+    const tcpPort = raw === "" ? 4403 : Number(raw);
+    if (!host) { $("connErr").textContent = "Enter a host."; return; }
+    if (!Number.isInteger(tcpPort) || tcpPort < 1 || tcpPort > 65535) {
+      $("connErr").textContent = "Port must be a whole number from 1 to 65535.";
+      return;
+    }
+    connAction(async () => {
+      await post("/api/connection/connect", {transport: "tcp", host, port: tcpPort, allow_any_node: $("anyNode").checked});
+      ui.trTouched = false;
+      ui.tcpTouched = false;
+      ui.portTouched = false;
+      $("anyNode").checked = false;
+    });
+    return;
+  }
   const port = $("portSel").value || null;
   connAction(async () => {
     await post("/api/connection/connect", {port, allow_any_node: !!port && $("anyNode").checked});
     ui.portTouched = false;
+    ui.trTouched = false;
+    ui.tcpTouched = false;
     $("anyNode").checked = false;
   });
 }
@@ -596,7 +657,21 @@ function renderRows() {
     tb.dataset.fk = "test:" + n.node_id;
     tb.setAttribute("aria-label", "Send test alert to " + name);
     tb.addEventListener("click", () => sendTest(n.node_id));
-    c8.append(mb, tb);
+    const pb = el("button", "btn");
+    pb.type = "button";
+    pb.dataset.fk = "pos:" + n.node_id;
+    pb.title = "Asks the node to send its position. Nodes without GPS or a fixed position, or with position sharing off, will not answer; firmware also rate-limits replies.";
+    pb.setAttribute("aria-label", "Request position from " + name);
+    const left = posCooldownLeft(n.node_id);
+    if (left > 0) {
+      pb.disabled = true;
+      pb.textContent = "Requested…";
+      c5.appendChild(el("div", "small", "Requested…, waiting for reply"));
+    } else {
+      pb.textContent = "Request position";
+    }
+    pb.addEventListener("click", () => requestPosition(n));
+    c8.append(mb, tb, pb);
 
     row.append(c1, c2, c3, c4, c5, c6, c7, c8);
     box.appendChild(row);
@@ -686,6 +761,26 @@ async function toggleSub(n, btn) {
   refresh();
 }
 
+const POS_COOLDOWN_MS = 30000;
+const posRequestedAt = {};
+function posCooldownLeft(id) {
+  return posRequestedAt[id] ? posRequestedAt[id] + POS_COOLDOWN_MS - Date.now() : 0;
+}
+
+async function requestPosition(n) {
+  posRequestedAt[n.node_id] = Date.now();
+  setTimeout(renderRows, POS_COOLDOWN_MS + 100);
+  renderRows();
+  try {
+    await post("/api/nodes/" + n.node_id + "/request-position", {});
+    setStatus("Position requested from " + displayName(n) + ". Waiting for reply; nodes without GPS or with position sharing off will not answer.");
+  } catch (e) {
+    delete posRequestedAt[n.node_id];
+    renderRows();
+    setStatus("Error: " + e.message, true);
+  }
+}
+
 async function sendTest(id) {
   try {
     await post("/api/test-alert", {node_id: id});
@@ -764,6 +859,9 @@ async function refresh() {
 }
 
 $("portSel").addEventListener("change", (e) => { ui.port = e.target.value; ui.portTouched = true; renderPortSelect(); });
+$("trSel").addEventListener("change", (e) => { ui.tr = e.target.value; ui.trTouched = true; renderTransport(); });
+$("hostIn").addEventListener("input", () => { ui.tcpTouched = true; });
+$("tcpPortIn").addEventListener("input", () => { ui.tcpTouched = true; });
 $("connectBtn").addEventListener("click", onConnect);
 $("disconnectBtn").addEventListener("click", () => connAction(() => post("/api/connection/disconnect")));
 $("refreshPorts").addEventListener("click", onRefreshPorts);

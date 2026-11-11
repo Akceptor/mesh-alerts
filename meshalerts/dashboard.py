@@ -16,6 +16,7 @@ from werkzeug.serving import make_server
 
 from . import messages
 from .db import node_num_from_id
+from .mesh import NotConnected
 from .oblast import API_NAMES
 
 log = logging.getLogger(__name__)
@@ -44,6 +45,26 @@ def is_loopback(host: str) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?$")
+
+
+def parse_tcp_target(host: Any, port: Any) -> tuple[str, int, str | None]:
+    """Validate a radio TCP address. Returns (host, port, error)."""
+    if not isinstance(host, str) or not host.strip():
+        return "", 0, "host must be a non-empty string."
+    host = host.strip()
+    if len(host) > 253:
+        return "", 0, "host is too long."
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        if not HOSTNAME_RE.match(host):
+            return "", 0, "host must be an IPv4 or IPv6 address or a hostname (no scheme, path or spaces)."
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        return "", 0, "port must be an integer from 1 to 65535."
+    return host, port, None
 
 
 def create_app(svc, config) -> Flask:
@@ -137,8 +158,8 @@ def create_app(svc, config) -> Flask:
                 "hw_model": link["hw_model"],
                 "firmware": link["firmware"],
                 "serial_port": link["active_port"] or getattr(mesh_cfg, "serial_port", None) or None,
-                "host": getattr(mesh_cfg, "host", None),
-                "port": getattr(mesh_cfg, "port", None),
+                "host": link.get("host", getattr(mesh_cfg, "host", None)),
+                "port": link.get("port", getattr(mesh_cfg, "port", None)),
                 "last_error": link["last_error"],
             },
             poller={
@@ -189,10 +210,19 @@ def create_app(svc, config) -> Flask:
         data = body()
         port = data.get("port")
         allow_any = data.get("allow_any_node", False)
-        if port is not None and not isinstance(port, str):
-            return jsonify(error="port must be a string or null."), 400
+        transport = data.get("transport", "serial")
+        if transport not in ("serial", "tcp"):
+            return jsonify(error="transport must be serial or tcp."), 400
         if not isinstance(allow_any, bool):
             return jsonify(error="allow_any_node must be true or false."), 400
+        if transport == "tcp":
+            host, tcp_port, err = parse_tcp_target(data.get("host"), data.get("port", 4403))
+            if err:
+                return jsonify(error=err), 400
+            svc.mesh.connect(None, allow_any_node=allow_any, tcp=(host, tcp_port))
+            return jsonify(ok=True)
+        if port is not None and not isinstance(port, str):
+            return jsonify(error="port must be a string or null."), 400
         if port is not None:
             try:
                 known = {p["path"] for p in svc.mesh.list_ports()}
@@ -216,6 +246,19 @@ def create_app(svc, config) -> Flask:
         reply = svc.commands.subscribe(node_id, node_num_from_id(node_id))
         notif_id = svc.notifier.enqueue(node_id, reply, "reply") if notify else None
         return jsonify(ok=True, reply=reply, notification_id=notif_id)
+
+    @app.post("/api/nodes/<node_id>/request-position")
+    def request_position(node_id):
+        if not valid_node(node_id):
+            return jsonify(error="Invalid node ID."), 400
+        try:
+            svc.mesh.request_position(node_num_from_id(node_id))
+        except NotConnected:
+            return jsonify(error="Radio is not connected."), 409
+        except Exception as exc:
+            log.warning("Position request to %s failed: %s", node_id, exc)
+            return jsonify(error=f"Could not send request: {exc}"), 500
+        return jsonify(ok=True)
 
     @app.post("/api/nodes/<node_id>/unsubscribe")
     def unsubscribe(node_id):

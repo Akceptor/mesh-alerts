@@ -207,6 +207,7 @@ class MeshConnection:
         self._gen = 0
         self._mode = "auto"
         self._chosen_port: str | None = None
+        self._tcp: tuple[str, int] | None = None
         self._user_disconnected = False
         self._allow_any = False
         self._connecting = False
@@ -247,7 +248,8 @@ class MeshConnection:
     def _persist(self) -> None:
         if self._settings is None:
             return
-        self._settings.set_setting(SETTING_MODE, self._mode)
+        # A runtime TCP address is not persisted. A restart goes back to the config values.
+        self._settings.set_setting(SETTING_MODE, "auto" if self._mode == "tcp" else self._mode)
         self._settings.set_setting(SETTING_PORT, self._chosen_port or "")
         self._settings.set_setting(SETTING_DISCONNECTED, "1" if self._user_disconnected else "0")
 
@@ -259,13 +261,22 @@ class MeshConnection:
         self._persist()
         self._wake.set()
 
-    def connect(self, path: str | None = None, allow_any_node: bool = False) -> None:
-        """Connect now. path None means auto-detect. Returns at once. The supervisor does the work."""
+    def connect(
+        self, path: str | None = None, allow_any_node: bool = False,
+        tcp: tuple[str, int] | None = None,
+    ) -> None:
+        """Connect now. path None means auto-detect. Returns at once. The supervisor does the work.
+
+        tcp=(host, port) forces TCP to that address until the next connect() or a restart.
+        """
         with self._ctl:
-            self._mode = "auto" if path is None else "manual"
-            self._chosen_port = path
+            if tcp is not None:
+                self._mode, self._chosen_port, self._tcp = "tcp", None, (tcp[0], int(tcp[1]))
+            else:
+                self._mode = "auto" if path is None else "manual"
+                self._chosen_port, self._tcp = path, None
             self._user_disconnected = False
-            self._allow_any = bool(allow_any_node) and path is not None
+            self._allow_any = bool(allow_any_node) and (path is not None or tcp is not None)
             self._connecting = True
             self._bump()
 
@@ -319,6 +330,7 @@ class MeshConnection:
         with self._ctl:
             mode, chosen, user_down = self._mode, self._chosen_port, self._user_disconnected
             connecting, radio = self._connecting, dict(self._radio)
+            host, port = self._tcp or (self.config.host, self.config.port)
         connected = self.is_connected()
         return {
             "mode": mode,
@@ -329,7 +341,9 @@ class MeshConnection:
             "disconnected_by_user": user_down,
             "last_error": self.last_error,
             "next_retry_at": self.next_retry_at,
-            "transport": "serial" if mode == "manual" else self.config.transport,
+            "transport": "serial" if mode == "manual" else "tcp" if mode == "tcp" else self.config.transport,
+            "host": host,
+            "port": port,
             "node_id": radio.get("node_id"),
             "hw_model": radio.get("hw_model"),
             "firmware": radio.get("firmware"),
@@ -417,6 +431,23 @@ class MeshConnection:
             )
         return packet.id
 
+    def request_position(self, dest_num: int) -> None:
+        from meshtastic.protobuf import mesh_pb2, portnums_pb2
+
+        # Not iface.sendPosition(wantResponse=True): it blocks in waitForPosition for the
+        # lib timeout while holding the send lock. The reply arrives via the normal receive path.
+        with self._send_lock:
+            if not self.is_connected():
+                raise NotConnected("Radio is not connected.")
+            self._iface.sendData(
+                mesh_pb2.Position(),
+                destinationId=dest_num,
+                portNum=portnums_pb2.PortNum.POSITION_APP,
+                wantResponse=True,
+                channelIndex=self.tx_config.channel_index,
+            )
+        log.info("Requested position from %s.", node_id_from_num(dest_num))
+
     # supervisor
     def start(self) -> None:
         for target, name in ((self._dispatch_loop, "mesh-dispatch"), (self._supervise, "mesh-supervisor")):
@@ -441,7 +472,9 @@ class MeshConnection:
                 manual=self._mode == "manual",
                 path=self._chosen_port,
                 down=self._user_disconnected,
-                serial=self._mode == "manual" or self.config.transport == "serial",
+                serial=self._mode == "manual" or (self._tcp is None and self.config.transport == "serial"),
+                host=(self._tcp or (self.config.host, self.config.port))[0],
+                port=(self._tcp or (self.config.host, self.config.port))[1],
             )
 
     def _connect(self, snap):
@@ -463,7 +496,7 @@ class MeshConnection:
                         log.info("Serial 0xFF fix is on (WCH driver doubles 0xFF bytes).")
                     iface = self._serial_factory(path, ff_fix=ff_fix)
                 else:
-                    iface = self._factory(self.config.host, self.config.port)
+                    iface = self._factory(snap.host, snap.port)
             except Exception as exc:
                 result["error"] = exc
                 return
@@ -495,7 +528,7 @@ class MeshConnection:
             elif serial:
                 log.warning("Cannot open serial port: %s", exc)
             else:
-                log.warning("Cannot connect to %s:%s: %s", self.config.host, self.config.port, exc)
+                log.warning("Cannot connect to %s:%s: %s", snap.host, snap.port, exc)
             return None
         return result.get("iface")
 

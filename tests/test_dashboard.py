@@ -278,3 +278,91 @@ def test_state_connection_fields(env):
     assert (conn["node_id"], conn["hw_model"], conn["firmware"]) == ("!00001000", "HELTEC_V3", "2.7.0")
     assert conn["serial_port"] == "/dev/cu.wchusbserial2110" and conn["last_error"] == "boom"
     assert conn["transport"] == "serial" and conn["disconnected_by_user"] is False
+
+
+def test_connect_tcp(env):
+    r = make(env).post("/api/connection/connect", headers=H,
+                       json={"transport": "tcp", "host": " 192.168.50.20 ", "port": 4404, "allow_any_node": True})
+    assert r.status_code == 200
+    assert env.mesh.calls == [("connect_tcp", "192.168.50.20", 4404, True)]
+
+
+@pytest.mark.parametrize("host", ["radio.local", "fe80::1", "m7", "10.0.0.1."])
+def test_connect_tcp_accepts_hosts_and_default_port(env, host):
+    r = make(env).post("/api/connection/connect", headers=H, json={"transport": "tcp", "host": host})
+    assert r.status_code == 200
+    assert env.mesh.calls == [("connect_tcp", host, 4403, False)]
+
+
+@pytest.mark.parametrize("payload", [
+    {"transport": "tcp"},
+    {"transport": "tcp", "host": ""},
+    {"transport": "tcp", "host": "   "},
+    {"transport": "tcp", "host": 5},
+    {"transport": "tcp", "host": "my host"},
+    {"transport": "tcp", "host": "http://10.0.0.1"},
+    {"transport": "tcp", "host": "10.0.0.1/x"},
+    {"transport": "tcp", "host": "10.0.0.1:4403"},
+    {"transport": "tcp", "host": "a" * 254},
+    {"transport": "tcp", "host": "10.0.0.1", "port": 0},
+    {"transport": "tcp", "host": "10.0.0.1", "port": 65536},
+    {"transport": "tcp", "host": "10.0.0.1", "port": "4403"},
+    {"transport": "tcp", "host": "10.0.0.1", "port": True},
+    {"transport": "tcp", "host": "10.0.0.1", "port": 1.5},
+    {"transport": "tcp", "host": "10.0.0.1", "allow_any_node": "yes"},
+    {"transport": "usb"},
+])
+def test_connect_tcp_validation(env, payload):
+    r = make(env).post("/api/connection/connect", headers=H, json=payload)
+    assert r.status_code == 400 and r.get_json()["error"]
+    assert env.mesh.calls == []
+
+
+def test_connect_explicit_serial_transport_unchanged(env):
+    env.mesh.ports = [PORT_ROW]
+    r = make(env).post("/api/connection/connect", headers=H,
+                       json={"transport": "serial", "port": PORT_ROW["path"]})
+    assert r.status_code == 200
+    assert env.mesh.calls == [("connect", PORT_ROW["path"], False)]
+
+
+def test_state_reports_address_in_use(env):
+    env.mesh.link = {"transport": "tcp", "host": "10.1.2.3", "port": 4500}
+    conn = make(env).get("/api/state").get_json()["connection"]
+    assert (conn["host"], conn["port"]) == ("10.1.2.3", 4500)
+
+
+def test_request_position_ok(env):
+    c = make(env)
+    r = c.post(f"/api/nodes/{NODE_ID}/request-position", json={}, headers=H)
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    assert env.mesh.calls[-1] == ("request_position", int(NODE_ID[1:], 16))
+
+
+def test_request_position_bad_id(env):
+    c = make(env)
+    assert c.post("/api/nodes/bad/request-position", json={}, headers=H).status_code == 400
+    assert not env.mesh.calls
+
+
+def test_request_position_disconnected(env):
+    env.mesh.connected = False
+    r = make(env).post(f"/api/nodes/{NODE_ID}/request-position", json={}, headers=H)
+    assert r.status_code == 409
+
+
+def test_position_reply_updates_node(env):
+    from types import SimpleNamespace
+
+    from meshalerts.service import Service
+
+    enroll(env)
+    env.clock.advance(100)
+    stub = SimpleNamespace(
+        _node_id=Service._node_id, _touch=lambda n: None, db=env.db, gps=env.gps,
+    )
+    packet = {"fromId": NODE_ID, "rxTime": int(env.clock()),
+              "decoded": {"position": {"latitude": 50.25, "longitude": 24.75}}}
+    Service._on_position(stub, packet)
+    node = env.db.get_node(NODE_ID)
+    assert node["latitude"] == pytest.approx(50.25) and node["longitude"] == pytest.approx(24.75)

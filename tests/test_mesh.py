@@ -648,3 +648,144 @@ def test_allow_any_not_persisted(tmp_path):
                         on_nodeinfo=lambda p: None, on_connected=lambda i: None, subscribe=False,
                         settings=db)
     assert c2._allow_any is False and c2.status()["chosen_port"] == "/dev/cu.wchusbserial2110"
+
+
+def make_tcp(factory, serial_factory=None, **cfg):
+    got = []
+    conn = MeshConnection(
+        MeshtasticConfig(transport="tcp", host="x", **cfg), TxConfig(),
+        on_text=lambda p: None, on_position=lambda p: None, on_nodeinfo=lambda p: None,
+        on_connected=got.append, subscribe=False, iface_factory=factory,
+        serial_factory=serial_factory or (lambda path, ff_fix=False: pytest.fail("serial must not be used")),
+        port_lister=lambda: PORTS,
+    )
+    return conn, got
+
+
+def test_tcp_connect_switches_address_and_replaces_link(monkeypatch):
+    monkeypatch.setattr("meshalerts.mesh.INITIAL_BACKOFF_S", 0.05)
+    seen, ifaces = [], []
+
+    def factory(h, p):
+        seen.append((h, p))
+        ifaces.append(FakeIface())
+        return ifaces[-1]
+
+    conn, got = make_tcp(factory)
+    conn.start()
+    assert wait_for(lambda: len(got) == 1)
+    assert conn.status()["host"] == "x" and conn.status()["port"] == 4403
+    conn.connect(tcp=("10.9.9.9", 4410))
+    assert wait_for(lambda: len(got) == 2, timeout=3)
+    assert seen == [("x", 4403), ("10.9.9.9", 4410)]
+    assert ifaces[0].closed and not ifaces[1].closed
+    st = conn.status()
+    assert (st["transport"], st["mode"], st["host"], st["port"]) == ("tcp", "tcp", "10.9.9.9", 4410)
+    conn.stop()
+
+
+def test_tcp_override_survives_reconnects(monkeypatch):
+    monkeypatch.setattr("meshalerts.mesh.INITIAL_BACKOFF_S", 0.05)
+    seen = []
+
+    def factory(h, p):
+        seen.append((h, p))
+        if len(seen) == 2:
+            raise OSError("refused")
+        return FakeIface()
+
+    conn, got = make_tcp(factory)
+    conn.connect(tcp=("10.9.9.9", 4410))
+    conn.start()
+    assert wait_for(lambda: len(got) == 1)
+    first = conn._iface
+    first.isConnected.clear()
+    conn._lost.set()
+    assert wait_for(lambda: len(seen) >= 3 and len(got) == 2, timeout=5)
+    assert set(seen) == {("10.9.9.9", 4410)}
+    conn.stop()
+
+
+def test_tcp_override_from_serial_manual_mode():
+    seen = []
+    conn, got = make_tcp(lambda h, p: seen.append((h, p)) or FakeIface())
+    conn.connect("/dev/cu.wchusbserial2110")
+    conn.connect(tcp=("h.local", 4403))
+    conn.start()
+    assert wait_for(lambda: got)
+    assert seen == [("h.local", 4403)]
+    assert conn.status()["chosen_port"] is None
+    conn.stop()
+
+
+def test_tcp_override_not_persisted(tmp_path):
+    from meshalerts.db import Database
+
+    db = Database(str(tmp_path / "t.db"))
+    seen = []
+
+    def build():
+        return MeshConnection(
+            MeshtasticConfig(transport="tcp", host="x"), TxConfig(),
+            on_text=lambda p: None, on_position=lambda p: None, on_nodeinfo=lambda p: None,
+            on_connected=lambda n: None, subscribe=False, settings=db,
+            iface_factory=lambda h, p: seen.append((h, p)) or FakeIface(),
+        )
+
+    first = build()
+    first.connect(tcp=("10.9.9.9", 4410))
+    first.start()
+    assert wait_for(lambda: seen)
+    first.stop()
+    second = build()
+    assert second.status()["mode"] == "auto" and second.status()["host"] == "x"
+    second.start()
+    assert wait_for(lambda: len(seen) == 2)
+    assert seen[-1] == ("x", 4403)
+    second.stop()
+
+
+def test_tcp_connect_still_checks_expected_node_unless_allowed():
+    iface = FakeIface()
+    conn, got = make_tcp(lambda h, p: iface, expected_node_id="!deadbeef")
+    conn.connect(tcp=("10.9.9.9", 4403))
+    conn.start()
+    assert wait_for(lambda: conn.status()["last_error"])
+    assert "Wrong radio" in conn.status()["last_error"] and not got
+    conn.connect(tcp=("10.9.9.9", 4403), allow_any_node=True)
+    assert wait_for(lambda: got, timeout=3)
+    conn.stop()
+
+
+def test_serial_manual_connect_clears_tcp_override():
+    opened = []
+    conn, got = make_tcp(
+        lambda h, p: FakeIface(),
+        serial_factory=lambda path, ff_fix=False: opened.append(path) or FakeIface(),
+    )
+    conn.connect(tcp=("10.9.9.9", 4410))
+    conn.connect("/dev/cu.wchusbserial2110")
+    conn.start()
+    assert wait_for(lambda: got)
+    assert opened == ["/dev/cu.wchusbserial2110"]
+    assert conn.status()["transport"] == "serial"
+    conn.stop()
+
+
+def test_request_position_sends_empty_position_request():
+    from meshtastic.protobuf import mesh_pb2, portnums_pb2
+
+    iface = FakeIface()
+    conn, _ = make(lambda h, p: iface)
+    conn._iface, conn._local_num = iface, LOCAL
+    conn.request_position(0xA1)
+    data, kw = iface.sent[0]
+    assert data == mesh_pb2.Position() and data.latitude_i == 0 and data.longitude_i == 0
+    assert kw["destinationId"] == 0xA1 and kw["wantResponse"] is True
+    assert kw["portNum"] == portnums_pb2.PortNum.POSITION_APP
+
+
+def test_request_position_when_down_raises():
+    conn, _ = make(lambda h, p: None)
+    with pytest.raises(NotConnected):
+        conn.request_position(1)

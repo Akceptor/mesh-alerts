@@ -94,8 +94,11 @@ class FakeMesh:
     def list_ports(self):
         return self.ports
 
-    def connect(self, path=None, allow_any_node=False):
-        self.calls.append(("connect", path, allow_any_node))
+    def connect(self, path=None, allow_any_node=False, tcp=None):
+        if tcp is not None:
+            self.calls.append(("connect_tcp", tcp[0], tcp[1], allow_any_node))
+        else:
+            self.calls.append(("connect", path, allow_any_node))
 
     def disconnect(self):
         self.calls.append(("disconnect",))
@@ -109,6 +112,11 @@ class FakeMesh:
         self._next_id += 1
         self.sent.append({"dest": dest_num, "text": text, "cb": on_ack, "id": self._next_id})
         return self._next_id
+
+    def request_position(self, dest_num):
+        if not self.connected:
+            raise NotConnected("down")
+        self.calls.append(("request_position", dest_num))
 
     def texts(self):
         return [s["text"] for s in self.sent]
