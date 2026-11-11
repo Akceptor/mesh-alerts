@@ -308,7 +308,7 @@ A node can pin itself to one oblast, for example when its GPS is jammed or it si
 - Positions in the M7 node database are only as new as the last packet the M7 heard.
 - Spoofed GPS fixes inside Ukraine cannot be detected. Only fixes far outside Ukraine are rejected.
 - macOS sleep stops the service. Use `caffeinate` or turn off sleep.
-- ThinkNode M7 unit !5f4e7f34: Ethernet link never comes up (hardware fault suspected); use USB serial.
+- ThinkNode M7 Ethernet needs DHCP; a static IP does not work (Meshtastic firmware issue). On a direct cable to a Mac there is no DHCP server, so run one on the Mac interface (for example macOS `bootpd`, `sudo /usr/libexec/bootpd -D -d` with an `/etc/bootpd.plist` that enables DHCP on that interface). Through a router it works as is.
 - The library reconnect is not reliable. The service has its own supervisor that reconnects with backoff.
 
 ## Data sources and licenses
