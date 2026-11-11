@@ -1,0 +1,15 @@
+data/*.db
+data/*.db-wal
+data/*.db-shm
+logs/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+config.toml
+
+# Override ~/.gitignore_global (*.txt, *.html, *.json) for project files.
+!requirements.txt
+!requirements-dev.txt
+!meshalerts/templates/*.html
+!tests/fixtures/*.json

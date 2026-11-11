@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesh Alerts Dashboard</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg:#F4F5F7; --surface:#FFFFFF; --surface-2:#F9FAFB; --hover:#EEF1F5; --selected:#F5F8FF;
+  --fg:#14171C; --fg-2:#3A414C; --muted:#5A6270;
+  --line:#E1E5EB; --line-2:#E6E9EE; --line-ctl:#CBD2DC; --focus:#1D4ED8;
+  --primary-bg:#14171C; --primary-fg:#FFFFFF; --primary-hover:#2B3038;
+  --track-off:#C5CBD4; --knob:#FFFFFF;
+  --ok:#15803D; --warn:#B45309; --bad:#B91C1C;
+  --danger-fg:#9A2A0E; --alert-fg:#9A3412;
+  --alert-bg:#FFF4ED; --alert-line:#F5C3A6;
+  --p-alert-bg:#FDE3D3; --p-alert-fg:#9A3412;
+  --p-info-bg:#E3ECFF; --p-info-fg:#1E3A8A;
+  --p-neutral-bg:#ECEEF2; --p-neutral-fg:#374151;
+  --p-warn-bg:#FFF1D6; --p-warn-fg:#7A4B00;
+  --p-bad-bg:#FDE5DE; --p-bad-fg:#9A2A0E;
+  --p-idle-bg:#F1F1F4; --p-idle-fg:#3F3F46;
+  --font:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#0E1115; --surface:#171B21; --surface-2:#1B2027; --hover:#232932; --selected:#1A2538;
+    --fg:#E8EAEE; --fg-2:#C3C9D2; --muted:#99A2AF;
+    --line:#2A313A; --line-2:#262D36; --line-ctl:#3A424D; --focus:#7AA2FF;
+    --primary-bg:#E8EAEE; --primary-fg:#14171C; --primary-hover:#FFFFFF;
+    --track-off:#3F4752; --knob:#FFFFFF;
+    --ok:#4ADE80; --warn:#FBBF24; --bad:#F87171;
+    --danger-fg:#FCA58C; --alert-fg:#FDBA8C;
+    --alert-bg:#2A1C14; --alert-line:#6B3A22;
+    --p-alert-bg:#4A2410; --p-alert-fg:#FDBA8C;
+    --p-info-bg:#1E2F57; --p-info-fg:#B5CBFF;
+    --p-neutral-bg:#2A303A; --p-neutral-fg:#C3C9D2;
+    --p-warn-bg:#3F3010; --p-warn-fg:#F9D58A;
+    --p-bad-bg:#4A1E14; --p-bad-fg:#FCA58C;
+    --p-idle-bg:#262A31; --p-idle-fg:#C3C9D2;
+  }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--font); font-size:14px; line-height:1.4; }
+.page { max-width:1360px; margin:0 auto; padding:24px 16px 48px; display:flex; flex-direction:column; gap:20px; }
+.mono { font-family:var(--mono); }
+.muted { color:var(--muted); }
+h1, h2, p { margin:0; }
+h2 { font-size:16px; font-weight:600; }
+.th { font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:12px; min-width:0; }
+
+header > * { min-width:0; }
+header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
+.brand { display:flex; align-items:center; gap:12px; }
+.brand svg { stroke:var(--fg); flex:none; }
+.brand h1 { font-size:22px; font-weight:700; letter-spacing:-.01em; }
+.brand p { font-size:13px; color:var(--muted); margin-top:2px; }
+.badges { display:flex; flex-wrap:wrap; gap:8px; min-width:0; max-width:100%; }
+.badge { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--surface); border:1px solid var(--line); border-radius:999px; font-size:13px; max-width:100%; min-width:0; }
+.badge b { font-weight:600; }
+.badge .sub { color:var(--muted); font-size:12px; overflow-wrap:anywhere; min-width:0; }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:none; }
+.dot.ok { background:var(--ok); } .dot.warn { background:var(--warn); } .dot.bad { background:var(--bad); }
+.badge.bad { border-color:var(--bad); }
+.badge.warn { border-color:var(--warn); }
+
+.summary { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap:12px; }
+.summary .card { padding:16px; overflow-wrap:anywhere; }
+.big { font-size:28px; font-weight:700; margin-top:6px; }
+.big.alert { color:var(--alert-fg); }
+.small { font-size:12px; color:var(--muted); }
+
+.btn { font:inherit; font-size:13px; font-weight:500; min-height:36px; padding:0 14px; border-radius:8px; border:1px solid var(--line-ctl); background:var(--surface); color:var(--fg); cursor:pointer; }
+.btn:hover { background:var(--hover); }
+.btn-primary { background:var(--primary-bg); color:var(--primary-fg); border-color:var(--primary-bg); }
+.btn-primary:hover { background:var(--primary-hover); }
+.btn:disabled { opacity:.55; cursor:default; }
+.chip { font:inherit; font-size:13px; min-height:32px; padding:0 12px; border-radius:999px; border:1px solid var(--line-ctl); background:var(--surface); color:var(--fg-2); cursor:pointer; }
+.chip:hover { background:var(--hover); }
+.chip[aria-pressed="true"] { background:var(--primary-bg); color:var(--primary-fg); border-color:var(--primary-bg); }
+.btn:focus-visible, .chip:focus-visible, .sw:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+.field { font:inherit; font-size:13px; min-height:36px; padding:0 10px; border:1px solid var(--line-ctl); border-radius:8px; background:var(--surface); color:var(--fg); }
+textarea.field { font-size:14px; padding:10px 12px; resize:vertical; min-height:96px; width:100%; }
+.check { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--fg-2); }
+.check input { width:16px; height:16px; margin:0; }
+
+.bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:16px; }
+.group { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
+.group > * { min-width:0; }
+.err { margin:0 16px 12px; font-size:13px; color:var(--danger-fg); }
+.err:empty { display:none; }
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.scroll { overflow-x:auto; }
+
+.grid { display:grid; gap:12px; align-items:center; padding:12px 16px; border-top:1px solid var(--line-2); }
+.grid > * { min-width:0; }
+.nodes-t { min-width:1180px; }
+.nodes-t .grid { grid-template-columns:minmax(170px,1.3fr) 120px 150px minmax(190px,1.4fr) minmax(170px,1.2fr) 90px 100px 170px; }
+.log-t { min-width:820px; }
+.log-t .grid { grid-template-columns:80px 120px 80px minmax(260px,1fr) 190px; padding:10px 16px; }
+.grid.head { background:var(--surface-2); }
+.grid.sel { background:var(--selected); }
+.empty { padding:16px; font-size:13px; color:var(--muted); border-top:1px solid var(--line-2); }
+.name { font-size:14px; font-weight:600; overflow-wrap:anywhere; }
+
+.sw { font:inherit; display:inline-flex; align-items:center; gap:8px; min-height:32px; padding:0; border:0; background:transparent; cursor:pointer; color:var(--fg); font-size:13px; }
+.track { position:relative; display:inline-block; width:36px; height:20px; border-radius:999px; background:var(--track-off); transition:background .15s; }
+.knob { position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--knob); transition:left .15s; }
+.sw[aria-pressed="true"] .track { background:var(--primary-bg); }
+.sw[aria-pressed="true"] .knob { left:18px; }
+.sw[aria-pressed="true"] .knob { background:var(--primary-fg); }
+
+.pill { display:inline-block; font-size:12px; font-weight:500; padding:3px 10px; border-radius:999px; overflow-wrap:anywhere; }
+.pill.strong { font-weight:600; }
+.p-alert { background:var(--p-alert-bg); color:var(--p-alert-fg); }
+.p-info { background:var(--p-info-bg); color:var(--p-info-fg); }
+.p-neutral { background:var(--p-neutral-bg); color:var(--p-neutral-fg); }
+.p-warn { background:var(--p-warn-bg); color:var(--p-warn-fg); }
+.p-bad { background:var(--p-bad-bg); color:var(--p-bad-fg); }
+.p-idle { background:var(--p-idle-bg); color:var(--p-idle-fg); }
+.flag { color:var(--alert-fg); }
+.rej-note { font-size:11px; color:var(--danger-fg); }
+
+.lower { display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start; }
+.dm { flex:1 1 min(380px, 100%); min-width:0; padding:16px; display:flex; flex-direction:column; gap:14px; }
+.regions { flex:2 1 min(560px, 100%); min-width:0; padding:16px; display:flex; flex-direction:column; gap:12px; }
+.col { display:flex; flex-direction:column; gap:6px; }
+.targets { max-height:140px; overflow-y:auto; }
+.counter { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 8px; font-size:12px; }
+.counter .n.over { color:var(--danger-fg); font-weight:600; }
+.status { font-size:13px; color:var(--p-info-fg); }
+.status:empty { display:none; }
+.status.bad { color:var(--danger-fg); }
+.status { min-height:0; }
+.note { font-size:12px; color:var(--muted); line-height:1.5; }
+.rgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap:8px; }
+.reg { min-width:0; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--surface); }
+.reg.alert { border-color:var(--alert-line); background:var(--alert-bg); }
+.reg-top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.reg-name { font-size:13px; font-weight:600; overflow-wrap:anywhere; min-width:0; }
+.reg-tag { font-size:11px; font-weight:600; white-space:nowrap; color:var(--muted); }
+.reg.alert .reg-tag { color:var(--alert-fg); }
+.reg-meta { font-size:12px; color:var(--muted); margin-top:4px; }
+.conn { padding:16px; display:flex; flex-direction:column; gap:12px; }
+.conn-row { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; }
+.conn-port { flex:1 1 280px; min-width:0; }
+select.field { width:100%; min-width:0; text-overflow:ellipsis; }
+.conn-line { font-size:13px; color:var(--fg-2); overflow-wrap:anywhere; }
+.conn-line.ok { color:var(--ok); }
+.conn-line.bad { color:var(--danger-fg); }
+.conn .err { margin:0; }
+.logbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:16px; }
+@media (max-width:520px) {
+  .page { padding:16px 12px 40px; }
+  .brand h1 { font-size:19px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="brand">
+    <svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-6"></path><path d="M8.5 10.5a5 5 0 0 1 7 0"></path><path d="M5.5 7.5a9 9 0 0 1 13 0"></path><circle cx="12" cy="13" r="1.2"></circle></svg>
+    <div>
+      <h1>Mesh Alerts</h1>
+      <p>Air alert notifications over Meshtastic</p>
+    </div>
+  </div>
+  <div class="badges">
+    <div class="badge" id="b-conn"><span class="dot" aria-hidden="true"></span><b>M7 &hellip;</b><span class="sub mono"></span></div>
+    <div class="badge" id="b-api"><span class="dot" aria-hidden="true"></span><b>Ubilling API</b><span class="sub"></span></div>
+    <div class="badge" id="b-queue"><b>TX queue</b><span class="mono" id="queue">-</span></div>
+  </div>
+</header>
+
+<section class="card conn" aria-labelledby="conn-h">
+  <h2 id="conn-h">Radio connection</h2>
+  <p class="conn-line" id="connLine" role="status" aria-live="polite">Loading&hellip;</p>
+  <div class="conn-row">
+    <div class="col conn-port">
+      <label for="portSel" class="th">Serial port</label>
+      <select id="portSel" class="field"></select>
+    </div>
+    <div class="group" style="gap:8px">
+      <button class="btn" type="button" id="refreshPorts">Refresh ports</button>
+      <button class="btn btn-primary" type="button" id="connectBtn">Connect</button>
+      <button class="btn" type="button" id="disconnectBtn">Disconnect</button>
+    </div>
+  </div>
+  <label class="check"><input type="checkbox" id="anyNode"> Accept any node</label>
+  <p class="note">Connect closes the current link and opens the chosen port at once. Auto-detect skips Espressif devices; choose one by hand if you need it. Accept any node skips the expected node ID check for this connection only.</p>
+  <p class="err" id="connErr" role="alert"></p>
+</section>
+
+<section class="summary" aria-label="Summary">
+  <div class="card"><div class="th">Subscribers</div><div class="big" id="s-subs">-</div><div class="small" id="s-subs-n"></div></div>
+  <div class="card"><div class="th">Regions in alert</div><div class="big alert" id="s-reg">-</div><div class="small" id="s-reg-n"></div></div>
+  <div class="card"><div class="th">Subscribers in alert</div><div class="big" id="s-sia">-</div><div class="small">by assigned oblast</div></div>
+  <div class="card"><div class="th">Messages today</div><div class="big" id="s-msg">-</div><div class="small" id="s-msg-n"></div></div>
+  <div class="card"><div class="th">GPS fixes rejected</div><div class="big" id="s-rej">-</div><div class="small">outside Ukraine (spoofing)</div></div>
+</section>
+
+<section class="card" aria-labelledby="nodes-h" style="overflow:hidden">
+  <div class="bar">
+    <div class="group">
+      <h2 id="nodes-h">Nodes</h2>
+      <div class="chips" id="filters"></div>
+    </div>
+    <div class="group">
+      <label class="check"><input type="checkbox" id="notify" checked> Send confirmation to node on change</label>
+      <form id="addForm" class="group" style="gap:6px;align-items:flex-start" novalidate>
+        <label for="newid" class="sr">Node ID</label>
+        <input id="newid" class="field mono" type="text" placeholder="!a1b2c3d4" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="9" style="width:140px" aria-describedby="addErr">
+        <button class="btn" type="submit">Add node</button>
+      </form>
+    </div>
+  </div>
+  <p class="err" id="addErr" role="alert"></p>
+  <div class="scroll">
+    <div class="nodes-t">
+      <div class="grid head">
+        <div class="th">Node</div><div class="th">Alerts</div><div class="th">Region status</div><div class="th">Oblast</div>
+        <div class="th">Position</div><div class="th">GPS rej.</div><div class="th">Last seen</div><div class="th">Actions</div>
+      </div>
+      <div id="rows"></div>
+    </div>
+  </div>
+</section>
+
+<div class="lower">
+  <section class="card dm" aria-labelledby="send-h">
+    <h2 id="send-h">Direct message</h2>
+    <div class="col">
+      <div class="th" id="to-h">To</div>
+      <div class="chips targets" id="targets" role="group" aria-labelledby="to-h"></div>
+      <div class="mono small" id="targetLine"></div>
+    </div>
+    <div class="col">
+      <label for="msg" class="th">Message</label>
+      <textarea id="msg" class="field" rows="4" placeholder="Type a message"></textarea>
+      <div class="counter">
+        <span class="muted">Cyrillic uses 2 bytes per letter.</span>
+        <span class="mono n" id="bytes">0 / 200 bytes</span>
+      </div>
+    </div>
+    <div class="group" style="gap:8px">
+      <button class="btn btn-primary" type="button" id="sendBtn">Send message</button>
+      <button class="btn" type="button" id="testBtn">Send test alert</button>
+    </div>
+    <p class="status" id="status" role="status"></p>
+    <p class="note">Direct messages only. No channel broadcast. An ACK means the radio received the message. It does not mean that a person read it.</p>
+  </section>
+
+  <section class="card regions" aria-labelledby="reg-h">
+    <div class="group" style="justify-content:space-between;gap:8px">
+      <h2 id="reg-h">Regions</h2>
+      <label class="check"><input type="checkbox" id="onlyActive"> Show only regions in alert</label>
+    </div>
+    <div class="rgrid" id="regions"></div>
+    <p class="small">Автономна Республіка Крим: no data from the API.</p>
+  </section>
+</div>
+
+<section class="card" aria-labelledby="log-h" style="overflow:hidden">
+  <div class="logbar">
+    <h2 id="log-h">Notification log</h2>
+    <span class="small" id="logCount"></span>
+  </div>
+  <div class="scroll">
+    <div class="log-t">
+      <div class="grid head">
+        <div class="th">Time</div><div class="th">Node</div><div class="th">Kind</div><div class="th">Text</div><div class="th">Delivery</div>
+      </div>
+      <div id="log"></div>
+    </div>
+  </div>
+</section>
+
+</div>
+<script>
+"use strict";
+const HDR = {"Content-Type": "application/json", "X-Requested-With": "meshalerts"};
+const NODE_RE = /^![0-9a-f]{8}$/;
+const MAX_BYTES = 200;
+const $ = (id) => document.getElementById(id);
+
+// UI state lives here, not in the DOM that render() rebuilds.
+const ui = {filter: "all", target: null, onlyActive: false, nodes: [], names: {}, busy: false,
+  port: "", portTouched: false, ports: [], portsSig: "", connBusy: false, conn: null};
+const FILTERS = [["all", "All"], ["sub", "Subscribed"], ["unsub", "Not subscribed"], ["nopos", "No position"]];
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function pad(n) { return String(n).padStart(2, "0"); }
+function hms(ts) {
+  const d = new Date(ts * 1000);
+  return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+}
+function sinceText(ts, now) {
+  const d = new Date(ts * 1000), today = new Date(now * 1000);
+  if (d.toDateString() === today.toDateString()) return pad(d.getHours()) + ":" + pad(d.getMinutes());
+  return d.toLocaleDateString("en-US", {year: "numeric", month: "short", day: "numeric"});
+}
+function dur(s) {
+  if (s < 60) return s + " s";
+  if (s < 3600) return Math.floor(s / 60) + " min";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  if (h < 48) return h + " h" + (m ? " " + m + " min" : "");
+  return Math.floor(h / 24) + " d";
+}
+function ago(ts, now) { return ts ? dur(Math.max(0, now - ts)) + " ago" : "never"; }
+function byteLen(s) { return new TextEncoder().encode(s).length; }
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+function displayName(n) { return n.name || "Unknown (" + n.node_id.slice(-4) + ")"; }
+
+function setStatus(text, bad) {
+  const s = $("status");
+  s.textContent = text;
+  s.className = "status" + (bad ? " bad" : "");
+}
+
+async function post(url, body) {
+  const r = await fetch(url, {method: "POST", headers: HDR, body: JSON.stringify(body || {})});
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* non-JSON error page */ }
+  if (!r.ok) throw new Error(j.error || "HTTP " + r.status);
+  return j;
+}
+
+function pillFor(n, states) {
+  if (!n.oblast) return ["Unknown", "p-neutral"];
+  if (!(n.oblast in states)) return ["No data", "p-idle"];
+  return states[n.oblast] ? ["Alert", "p-alert strong"] : ["No alert", "p-info strong"];
+}
+
+const DELIVERY = {
+  delivered: ["Delivered", "p-info"],
+  implicit_ack: ["Implicit ACK", "p-neutral"],
+  no_ack: ["No ACK", "p-warn"],
+  queued: ["Queued", "p-idle"],
+  sent: ["Sent · waiting for ACK", "p-idle"],
+  superseded: ["Superseded", "p-neutral"],
+  dropped: ["Dropped", "p-neutral"],
+};
+function deliveryPill(status) {
+  if (status && status.startsWith("failed:")) return ["Failed · " + status.slice(7), "p-bad"];
+  return DELIVERY[status] || [status || "Queued", "p-idle"];
+}
+
+function renderHeader(s) {
+  const c = s.connection, conn = $("b-conn");
+  conn.className = "badge" + (c.connected ? "" : " bad");
+  conn.children[0].className = "dot " + (c.connected ? "ok" : "bad");
+  conn.children[1].textContent = c.connected ? "M7 connected" : "M7 disconnected";
+  const addr = c.transport === "serial"
+    ? "USB" + (c.serial_port ? " " + c.serial_port : "")
+    : c.host ? c.host + (c.port ? ":" + c.port : "") : "";
+  const connText = c.connected
+    ? [addr, c.local_node_id].filter(Boolean).join(" · ")
+    : [addr, c.last_error].filter(Boolean).join(" · ");
+  conn.children[2].textContent = connText;
+  conn.title = connText;
+
+  const p = s.poller, api = $("b-api");
+  const bad = !p.fresh || !!p.last_error;
+  api.className = "badge" + (bad ? " warn" : "");
+  api.children[0].className = "dot " + (bad ? "warn" : "ok");
+  let txt = p.last_success_at ? "updated " + dur(Math.max(0, s.now - Math.floor(p.last_success_at))) + " ago" : "no data yet";
+  if (p.last_error) txt += " · error: " + p.last_error;
+  api.children[1].textContent = "Ubilling API";
+  api.children[2].textContent = txt;
+  api.title = txt;
+  $("queue").textContent = String(s.queue_length);
+}
+
+function portLabel(p) {
+  const tags = [];
+  if (p.likely) tags.push("likely");
+  if (p.espressif) tags.push("Espressif");
+  if (p.active) tags.push("active");
+  return (p.description ? p.description + " · " : "") + p.path + (tags.length ? " (" + tags.join(", ") + ")" : "");
+}
+
+function renderPortSelect() {
+  const sel = $("portSel");
+  const want = ui.portTouched ? ui.port : (ui.conn && ui.conn.mode === "manual" ? ui.conn.chosen_port : "");
+  ui.port = want || "";
+  const known = ui.ports.some((p) => p.path === ui.port);
+  const sig = JSON.stringify([ui.ports.map(portLabel), ui.port, known]);
+  if (sig !== ui.portsSig) {
+    ui.portsSig = sig;
+    sel.replaceChildren();
+    const auto = el("option", null, "Auto-detect");
+    auto.value = "";
+    sel.appendChild(auto);
+    if (ui.port && !known) {
+      const gone = el("option", null, ui.port + " (not present)");
+      gone.value = ui.port;
+      sel.appendChild(gone);
+    }
+    for (const p of ui.ports) {
+      const o = el("option", null, portLabel(p));
+      o.value = p.path;
+      sel.appendChild(o);
+    }
+  }
+  sel.value = ui.port;
+  $("anyNode").disabled = ui.connBusy || !ui.port;
+  if (!ui.port) $("anyNode").checked = false;
+}
+
+function renderConnection(c) {
+  ui.conn = c;
+  const line = $("connLine");
+  let text, cls = "";
+  const where = c.transport === "serial" ? c.serial_port : c.host ? c.host + (c.port ? ":" + c.port : "") : null;
+  if (c.connected) {
+    const bits = [c.hw_model, c.firmware].filter(Boolean).join(", ");
+    text = "Connected to " + (c.node_id || c.local_node_id || "node") + (bits ? " (" + bits + ")" : "") + (where ? " on " + where : "");
+    cls = "ok";
+  } else if (c.disconnected_by_user) {
+    text = "Disconnected by user";
+  } else if (c.connecting) {
+    text = "Connecting\u2026" + (where ? " " + where : "");
+  } else if (c.last_error) {
+    text = "Error: " + c.last_error;
+    if (c.next_retry_at) text += " · retry in " + Math.max(0, Math.round(c.next_retry_at - ui.now)) + " s";
+    cls = "bad";
+  } else {
+    text = "Disconnected" + (c.next_retry_at ? " · retry in " + Math.max(0, Math.round(c.next_retry_at - ui.now)) + " s" : "");
+  }
+  line.textContent = text;
+  line.className = "conn-line " + cls;
+  renderPortSelect();
+}
+
+function applyConnBusy() {
+  for (const id of ["refreshPorts", "connectBtn", "disconnectBtn", "portSel"]) $(id).disabled = ui.connBusy;
+  $("anyNode").disabled = ui.connBusy || !ui.port;
+}
+
+async function loadPorts(report) {
+  try {
+    const r = await fetch("/api/ports");
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "HTTP " + r.status);
+    ui.ports = j.ports;
+    return true;
+  } catch (e) {
+    if (report) $("connErr").textContent = "Cannot list ports: " + e.message;
+    return false;
+  }
+}
+
+async function connAction(fn) {
+  ui.connBusy = true;
+  applyConnBusy();
+  $("connErr").textContent = "";
+  try {
+    await fn();
+  } catch (e) {
+    $("connErr").textContent = e.message;
+  }
+  ui.connBusy = false;
+  applyConnBusy();
+  await refresh();
+}
+
+function onConnect() {
+  const port = $("portSel").value || null;
+  connAction(async () => {
+    await post("/api/connection/connect", {port, allow_any_node: !!port && $("anyNode").checked});
+    ui.portTouched = false;
+    $("anyNode").checked = false;
+  });
+}
+
+function onRefreshPorts() {
+  connAction(async () => {
+    if (!(await loadPorts(true))) return;
+    ui.portsSig = "";
+  });
+}
+
+function renderSummary(s, states) {
+  const subs = s.nodes.filter((n) => n.subscribed);
+  const names = Object.keys(states);
+  const activeCount = names.filter((r) => states[r]).length;
+  $("s-subs").textContent = subs.length;
+  $("s-subs-n").textContent = "of " + plural(s.nodes.length, "known node", "known nodes");
+  $("s-reg").textContent = activeCount;
+  $("s-reg-n").textContent = "of " + names.length + " regions";
+  $("s-sia").textContent = subs.filter((n) => n.oblast && states[n.oblast]).length;
+  const m = s.messages_today;
+  $("s-msg").textContent = m.total;
+  $("s-msg-n").textContent = m.delivered + " delivered · " + m.no_ack + " no ACK · " + m.failed + " failed";
+  $("s-rej").textContent = s.nodes.reduce((a, n) => a + n.rejected_positions, 0);
+}
+
+function visible(n) {
+  switch (ui.filter) {
+    case "sub": return n.subscribed;
+    case "unsub": return !n.subscribed;
+    case "nopos": return n.latitude == null;
+    default: return true;
+  }
+}
+
+function renderFilters() {
+  const box = $("filters");
+  box.replaceChildren();
+  for (const [key, label] of FILTERS) {
+    const b = el("button", "chip", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(ui.filter === key));
+    b.addEventListener("click", () => { ui.filter = key; renderFilters(); renderRows(); });
+    box.appendChild(b);
+  }
+}
+
+function rememberFocus() {
+  const a = document.activeElement;
+  return a && a.dataset && a.dataset.fk ? a.dataset.fk : null;
+}
+function restoreFocus(fk) {
+  if (!fk) return;
+  for (const e of document.querySelectorAll("[data-fk]")) {
+    if (e.dataset.fk === fk) { e.focus({preventScroll: true }); return; }
+  }
+}
+
+function renderRows() {
+  const fk = rememberFocus();
+  const box = $("rows");
+  box.replaceChildren();
+  const list = ui.nodes.filter(visible);
+  if (!list.length) box.appendChild(el("div", "empty", "No nodes to show."));
+  for (const n of list) {
+    const name = displayName(n);
+    const row = el("div", "grid" + (n.node_id === ui.target ? " sel" : ""));
+
+    const c1 = el("div");
+    c1.append(el("div", "name", name), el("div", "mono small", n.node_id));
+
+    const c2 = el("div");
+    const sw = el("button", "sw");
+    sw.type = "button";
+    sw.dataset.fk = "sw:" + n.node_id;
+    sw.setAttribute("aria-pressed", String(n.subscribed));
+    sw.setAttribute("aria-label", (n.subscribed ? "Unsubscribe " : "Subscribe ") + name);
+    const track = el("span", "track"), knob = el("span", "knob");
+    track.setAttribute("aria-hidden", "true");
+    track.appendChild(knob);
+    sw.append(track, el("span", null, n.subscribed ? "On" : "Off"));
+    sw.addEventListener("click", () => toggleSub(n, sw));
+    c2.appendChild(sw);
+
+    const c3 = el("div");
+    const [pt, pc] = pillFor(n, ui.states);
+    c3.appendChild(el("span", "pill " + pc, pt));
+
+    const c4 = el("div", null, n.oblast || "—");
+
+    const c5 = el("div");
+    c5.appendChild(el("div", "mono small", n.latitude == null ? "—" : n.latitude.toFixed(5) + ", " + n.longitude.toFixed(5)));
+    const noPos = n.position_age_s == null;
+    const age = el("div", "small" + (noPos || n.stale ? " flag" : ""),
+      noPos ? "no GPS position" : dur(n.position_age_s) + " ago" + (n.stale ? " · stale" : ""));
+    c5.appendChild(age);
+
+    const c6 = el("div");
+    c6.appendChild(el("div", "mono", String(n.rejected_positions)));
+    if (n.last_fix_rejected) c6.appendChild(el("div", "rej-note", "last fix rejected"));
+
+    const c7 = el("div", "small", ago(n.last_seen, ui.now));
+    c7.style.fontSize = "13px";
+
+    const c8 = el("div", "group");
+    c8.style.gap = "6px";
+    const mb = el("button", "btn", "Message");
+    mb.type = "button";
+    mb.dataset.fk = "msg:" + n.node_id;
+    mb.setAttribute("aria-label", "Message " + name);
+    mb.addEventListener("click", () => { selectTarget(n.node_id); $("msg").focus(); });
+    const tb = el("button", "btn", "Test");
+    tb.type = "button";
+    tb.dataset.fk = "test:" + n.node_id;
+    tb.setAttribute("aria-label", "Send test alert to " + name);
+    tb.addEventListener("click", () => sendTest(n.node_id));
+    c8.append(mb, tb);
+
+    row.append(c1, c2, c3, c4, c5, c6, c7, c8);
+    box.appendChild(row);
+  }
+  restoreFocus(fk);
+}
+
+function renderTargets() {
+  const fk = rememberFocus();
+  const box = $("targets");
+  box.replaceChildren();
+  for (const n of ui.nodes) {
+    const b = el("button", "chip", displayName(n));
+    b.type = "button";
+    b.dataset.fk = "to:" + n.node_id;
+    b.setAttribute("aria-pressed", String(n.node_id === ui.target));
+    b.addEventListener("click", () => selectTarget(n.node_id));
+    box.appendChild(b);
+  }
+  const t = ui.nodes.find((n) => n.node_id === ui.target);
+  $("targetLine").textContent = t ? t.node_id + " · " + (t.oblast || "region unknown") : "No recipient selected.";
+  restoreFocus(fk);
+}
+
+function selectTarget(id) {
+  ui.target = id;
+  setStatus("");
+  renderTargets();
+  renderRows();
+}
+
+function renderRegions(alerts, nodes) {
+  const box = $("regions");
+  box.replaceChildren();
+  const subs = {};
+  for (const n of nodes) if (n.subscribed && n.oblast) subs[n.oblast] = (subs[n.oblast] || 0) + 1;
+  for (const a of alerts) {
+    if (ui.onlyActive && !a.active) continue;
+    const card = el("div", "reg" + (a.active ? " alert" : ""));
+    const top = el("div", "reg-top");
+    top.append(el("span", "reg-name", a.oblast), el("span", "reg-tag", a.active ? "Alert" : "No alert"));
+    const count = subs[a.oblast] || 0;
+    const since = a.active ? (a.since ? "Since " + sinceText(a.since, ui.now) : "Alert") : "Clear";
+    card.append(top, el("div", "reg-meta", since + " · " + plural(count, "subscriber", "subscribers")));
+    box.appendChild(card);
+  }
+}
+
+function renderLog(list) {
+  const box = $("log");
+  box.replaceChildren();
+  $("logCount").textContent = "Latest first · " + plural(list.length, "entry", "entries");
+  if (!list.length) box.appendChild(el("div", "empty", "No messages yet."));
+  for (const n of list) {
+    const row = el("div", "grid");
+    const known = ui.names[n.node_id];
+    const node = el("div", null, known || n.node_id);
+    node.style.fontWeight = "500";
+    node.style.overflowWrap = "anywhere";
+    const kind = el("div", "small", n.kind);
+    const text = el("div", null, n.text);
+    text.style.overflowWrap = "anywhere";
+    const [label, cls] = deliveryPill(n.acknowledgement_status);
+    const d = el("div");
+    d.appendChild(el("span", "pill " + cls, label));
+    row.append(el("div", "mono small", hms(n.queued_at)), node, kind, text, d);
+    box.appendChild(row);
+  }
+}
+
+function updateCounter() {
+  const n = byteLen($("msg").value);
+  const e = $("bytes");
+  e.textContent = n + " / " + MAX_BYTES + " bytes";
+  e.className = "mono n" + (n > MAX_BYTES ? " over" : "");
+}
+
+async function toggleSub(n, btn) {
+  btn.disabled = true;
+  const action = n.subscribed ? "unsubscribe" : "subscribe";
+  try {
+    const j = await post("/api/nodes/" + n.node_id + "/" + action, {notify: $("notify").checked});
+    setStatus(j.reply ? displayName(n) + ": " + j.reply : "Done.");
+  } catch (e) {
+    setStatus("Error: " + e.message, true);
+  }
+  refresh();
+}
+
+async function sendTest(id) {
+  try {
+    await post("/api/test-alert", {node_id: id});
+    setStatus("Test message queued for " + (ui.names[id] || id) + ".");
+  } catch (e) {
+    setStatus("Error: " + e.message, true);
+  }
+  refresh();
+}
+
+async function sendMessage() {
+  const text = $("msg").value.trim();
+  if (!ui.target) return setStatus("Select a recipient first.", true);
+  if (!text) return setStatus("Type a message first.", true);
+  if (byteLen(text) > MAX_BYTES) return setStatus("Message is longer than " + MAX_BYTES + " bytes. Make it shorter.", true);
+  try {
+    await post("/api/send", {node_id: ui.target, text});
+    $("msg").value = "";
+    updateCounter();
+    setStatus("Message queued for " + (ui.names[ui.target] || ui.target) + ".");
+  } catch (e) {
+    setStatus("Error: " + e.message, true);
+  }
+  refresh();
+}
+
+async function addNode(ev) {
+  ev.preventDefault();
+  const err = $("addErr");
+  const id = $("newid").value.trim().toLowerCase();
+  if (!NODE_RE.test(id)) {
+    err.textContent = "Node ID must be ! and 8 hex digits, for example !a1b2c3d4.";
+    return;
+  }
+  if (ui.nodes.some((n) => n.node_id === id && n.subscribed)) {
+    err.textContent = "This node is already subscribed.";
+    return;
+  }
+  try {
+    await post("/api/nodes", {node_id: id});
+    err.textContent = "";
+    $("newid").value = "";
+    ui.target = ui.target || id;
+  } catch (e) {
+    err.textContent = e.message;
+  }
+  refresh();
+}
+
+async function refresh() {
+  try {
+    const [s, n] = await Promise.all([
+      fetch("/api/state").then((r) => r.json()),
+      fetch("/api/notifications?limit=100").then((r) => r.json()),
+    ]);
+    if (!s.nodes || !n.notifications) throw new Error("Unexpected response.");
+    const states = {};
+    for (const a of s.alerts) states[a.oblast] = a.active;
+    ui.states = states;
+    ui.now = s.now;
+    ui.nodes = s.nodes;
+    ui.names = {};
+    for (const x of s.nodes) if (x.name) ui.names[x.node_id] = x.name;
+    if (ui.target == null && s.nodes.length) ui.target = (s.nodes.find((x) => x.subscribed) || s.nodes[0]).node_id;
+    if (!ui.connBusy) await loadPorts(false);
+    renderHeader(s);
+    renderConnection(s.connection);
+    renderSummary(s, states);
+    renderRows();
+    renderTargets();
+    renderRegions(s.alerts, s.nodes);
+    renderLog(n.notifications);
+  } catch (e) {
+    setStatus("Cannot load state: " + e.message, true);
+  }
+}
+
+$("portSel").addEventListener("change", (e) => { ui.port = e.target.value; ui.portTouched = true; renderPortSelect(); });
+$("connectBtn").addEventListener("click", onConnect);
+$("disconnectBtn").addEventListener("click", () => connAction(() => post("/api/connection/disconnect")));
+$("refreshPorts").addEventListener("click", onRefreshPorts);
+$("addForm").addEventListener("submit", addNode);
+$("newid").addEventListener("input", () => { $("addErr").textContent = ""; });
+$("msg").addEventListener("input", updateCounter);
+$("sendBtn").addEventListener("click", sendMessage);
+$("testBtn").addEventListener("click", () => {
+  if (!ui.target) return setStatus("Select a recipient first.", true);
+  sendTest(ui.target);
+});
+$("onlyActive").addEventListener("change", (e) => { ui.onlyActive = e.target.checked; refresh(); });
+
+ui.states = {};
+ui.now = Math.floor(Date.now() / 1000);
+renderFilters();
+updateCounter();
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

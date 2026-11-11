@@ -1,0 +1,107 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "shapeISO": "UA-46",
+    "shapeName": "Lviv Oblast"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       24,
+       49
+      ],
+      [
+       25,
+       49
+      ],
+      [
+       25,
+       50
+      ],
+      [
+       24,
+       50
+      ],
+      [
+       24,
+       49
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "shapeISO": "UA-61",
+    "shapeName": "Ternopil Oblast"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       25,
+       49
+      ],
+      [
+       26,
+       49
+      ],
+      [
+       26,
+       50
+      ],
+      [
+       25,
+       50
+      ],
+      [
+       25,
+       49
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "shapeISO": "UA-30",
+    "shapeName": "Kyiv City"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       24,
+       50
+      ],
+      [
+       25,
+       50
+      ],
+      [
+       25,
+       51
+      ],
+      [
+       24,
+       51
+      ],
+      [
+       24,
+       50
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

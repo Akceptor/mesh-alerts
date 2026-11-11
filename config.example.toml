@@ -1,0 +1,50 @@
+[meshtastic]
+transport = "serial"           # "serial" (USB) or "tcp". Use tcp only with a working Ethernet or Wi-Fi unit.
+serial_port = ""               # explicit path, or empty to auto-detect
+serial_port_glob = "/dev/cu.wchusbserial*"
+serial_ff_fix = "off"          # "off", "on" or "auto". Use "on" only if logs show 0xFF doubling (see README). Doubling was seen once, not reproducible.
+expected_node_id = ""          # optional, e.g. "!5f4e7f34". A different node is rejected.
+host = "192.168.1.50"          # tcp only: IP address of the ThinkNode M7
+port = 4403                    # tcp only
+heartbeat_interval_s = 60
+reconnect_max_backoff_s = 60
+
+[alerts]
+url = "https://ubilling.net.ua/aerialalerts/"
+poll_interval_s = 15           # 5 or more
+request_timeout_s = 10
+stale_after_s = 120
+min_regions = 20
+border_policy = "assigned"     # or "any_nearby"
+notify_region_change_quiet = false
+
+[gps]
+geojson_path = "data/geoBoundaries-UKR-ADM1.geojson"
+stale_after_s = 21600
+drop_oblast_after_s = 0        # 0 = never
+border_margin_m = 1500
+outside_margin_m = 3000
+position_history = true
+reject_outside_ukraine = true  # ignore spoofed fixes far from Ukraine
+history_days = 30
+
+[tx]
+min_interval_s = 3
+ack_timeout_s = 120
+max_retries = 2
+retry_delay_s = 60
+channel_index = 0
+command_cooldown_s = 10
+
+[storage]
+db_path = "data/meshalerts.db"
+
+[logging]
+file = "logs/meshalerts.log"
+level = "INFO"
+
+[dashboard]
+enabled = true
+host = "127.0.0.1"
+port = 8080
+password = ""                  # set a password before you bind to a LAN address
