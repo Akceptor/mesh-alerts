@@ -482,10 +482,14 @@ function renderConnection(c) {
   line.className = "conn-line " + cls;
   renderPortSelect();
   renderTransport();
+  applyConnBusy();
 }
 
 function applyConnBusy() {
   for (const id of ["refreshPorts", "connectBtn", "disconnectBtn", "portSel", "trSel", "hostIn", "tcpPortIn"]) $(id).disabled = ui.connBusy;
+  const already = !!(ui.conn && ui.conn.connected);
+  $("connectBtn").disabled = ui.connBusy || already;
+  $("connectBtn").title = already ? "Already connected \u2014 Disconnect first" : "";
   $("anyNode").disabled = ui.connBusy || (ui.tr !== "tcp" && !ui.port);
 }
 

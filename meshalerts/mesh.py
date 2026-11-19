@@ -17,6 +17,7 @@ from .db import node_id_from_num
 log = logging.getLogger(__name__)
 
 INITIAL_BACKOFF_S = 5
+ABANDONED_WORKER_WAIT_S = 60
 STABLE_AFTER_S = 60
 
 # Espressif (0x303a) is deliberately absent. A T-Deck on non-Meshtastic firmware uses it,
@@ -211,6 +212,7 @@ class MeshConnection:
         self._user_disconnected = False
         self._allow_any = False
         self._connecting = False
+        self._abandoned_worker: threading.Thread | None = None
         self._radio: dict[str, str | None] = {}
         self._load_settings()
         self._iface: Any = None
@@ -271,7 +273,16 @@ class MeshConnection:
         """
         with self._ctl:
             if tcp is not None:
-                self._mode, self._chosen_port, self._tcp = "tcp", None, (tcp[0], int(tcp[1]))
+                tcp = (tcp[0], int(tcp[1]))
+                mode, chosen = "tcp", None
+            else:
+                mode, chosen = ("auto" if path is None else "manual"), path
+            # _allow_any is consumed on the first connect, so a request for it is never a repeat.
+            if (self.is_connected() and not allow_any_node and not self._allow_any
+                    and (mode, chosen, tcp) == (self._mode, self._chosen_port, self._tcp)):
+                return
+            if tcp is not None:
+                self._mode, self._chosen_port, self._tcp = "tcp", None, tcp
             else:
                 self._mode = "auto" if path is None else "manual"
                 self._chosen_port, self._tcp = path, None
@@ -477,7 +488,22 @@ class MeshConnection:
                 port=(self._tcp or (self.config.host, self.config.port))[1],
             )
 
+    def _wait_abandoned_worker(self) -> None:
+        # An abandoned attempt may still be inside the factory with the port open. Opening it
+        # again now fails with "could not exclusively lock port".
+        worker = self._abandoned_worker
+        if worker is None:
+            return
+        deadline = time.monotonic() + ABANDONED_WORKER_WAIT_S
+        while worker.is_alive() and not self._stop.is_set() and time.monotonic() < deadline:
+            worker.join(0.2)
+        if worker.is_alive():
+            log.warning("Previous connect attempt is still running.")
+        else:
+            self._abandoned_worker = None
+
     def _connect(self, snap):
+        self._wait_abandoned_worker()
         result: dict[str, Any] = {}
         serial = snap.serial
         guard = threading.Lock()
@@ -515,6 +541,7 @@ class MeshConnection:
                     iface = result.pop("iface", None)
                 if iface is not None:
                     self._close(iface)
+                self._abandoned_worker = worker
                 return None
             worker.join(0.2)
         if "error" in result:
