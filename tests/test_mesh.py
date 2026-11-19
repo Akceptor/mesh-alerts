@@ -789,3 +789,73 @@ def test_request_position_when_down_raises():
     conn, _ = make(lambda h, p: None)
     with pytest.raises(NotConnected):
         conn.request_position(1)
+
+
+def test_new_connect_waits_for_abandoned_attempt_to_release_port():
+    lock = threading.Lock()
+    state = {"open": 0, "max": 0, "calls": 0}
+    release = threading.Event()
+
+    class PortIface(FakeIface):
+        def close(self):
+            super().close()
+            with lock:
+                state["open"] -= 1
+
+    def factory(path, ff_fix=False):
+        with lock:
+            state["calls"] += 1
+            first = state["calls"] == 1
+            state["open"] += 1
+            state["max"] = max(state["max"], state["open"])
+        if first:
+            release.wait(10)
+        return PortIface()
+
+    conn, got = make_serial(factory, lambda: PORTS)
+    conn.start()
+    assert wait_for(lambda: state["calls"] == 1)
+    conn.connect("/dev/cu.wchusbserial2110")
+    time.sleep(0.6)
+    assert state["calls"] == 1
+    release.set()
+    assert wait_for(lambda: got["connected"], timeout=5)
+    assert state["calls"] == 2 and state["max"] == 1
+    conn.stop()
+
+
+def test_connect_with_same_settings_while_connected_is_noop():
+    conn, got = make_serial(lambda path, ff_fix=False: FakeIface(), lambda: PORTS)
+    conn.connect("/dev/cu.wchusbserial2110")
+    conn.start()
+    assert wait_for(lambda: got["connected"])
+    gen = conn._gen
+    conn.connect("/dev/cu.wchusbserial2110")
+    assert conn._gen == gen
+    conn.connect("/dev/cu.usbmodem101")
+    assert conn._gen == gen + 1
+    conn.stop()
+
+
+def test_connect_same_port_with_allow_any_while_connected_reconnects():
+    conn, got = make_serial(lambda path, ff_fix=False: FakeIface(), lambda: PORTS)
+    conn.connect("/dev/cu.wchusbserial2110")
+    conn.start()
+    assert wait_for(lambda: got["connected"])
+    gen = conn._gen
+    conn.connect("/dev/cu.wchusbserial2110", allow_any_node=True)
+    assert conn._gen == gen + 1
+    conn.stop()
+
+
+def test_tcp_connect_same_address_while_connected_is_noop():
+    conn, got = make_tcp(lambda h, p: FakeIface())
+    conn.connect(tcp=("10.9.9.9", 4410))
+    conn.start()
+    assert wait_for(lambda: got)
+    gen = conn._gen
+    conn.connect(tcp=("10.9.9.9", 4410))
+    assert conn._gen == gen
+    conn.connect(tcp=("10.9.9.9", 4411))
+    assert conn._gen == gen + 1
+    conn.stop()
